@@ -8,7 +8,7 @@ from src.constants.enums import Review, Role, Status
 from src.controllers.auth import allow, current
 from src.domain.spec import SPEC
 from src.models.identity import User
-from src.models.jobs import Run
+from src.models.jobs import Delivery, Run
 from src.models.source import Dataset
 from src.schemas.requests import ReviewRequest, RunRequest
 from src.services.audit import record
@@ -34,12 +34,17 @@ def index(db: Session = Depends(connection), actor: User = Depends(current)):
 @router.post('', status_code=202)
 def create(body: RunRequest, db: Session = Depends(connection),
            actor: User = Depends(allow(Role.ADMIN, Role.ANALYST))):
-    if not db.get(Dataset, body.dataset_id):
+    dataset = db.get(Dataset, body.dataset_id)
+    if not dataset:
         raise HTTPException(404, '找不到指定的数据批次')
-    item = Run(name=body.name, dataset_id=body.dataset_id, params=normalize_params(body.params), author=actor.username)
+    # Freeze the exact revision and rows now; later uploads cannot alter this run.
+    item = Run(name=body.name, dataset_id=dataset.id, dataset_revision=dataset.revision,
+               snapshot_checksum=dataset.checksum, snapshot=dataset.rows,
+               params=normalize_params(body.params), author=actor.username)
     db.add(item)
     db.flush()
-    record(db, actor.username, 'analysis.queued', item.id, dataset_id=item.dataset_id)
+    record(db, actor.username, 'analysis.queued', item.id, dataset_id=item.dataset_id,
+           dataset_revision=item.dataset_revision, snapshot_checksum=item.snapshot_checksum)
     db.commit()
     wake()
     return views.run(item, detail=True)
@@ -58,7 +63,10 @@ def export(run_id: int, db: Session = Depends(connection), actor: User = Depends
     path = ARTIFACTS / item.export_file
     if not path.is_file():
         raise HTTPException(410, '导出文件已不可用，请重新运行')
-    return FileResponse(path, media_type='text/csv', filename=f'{SPEC["short_name"]}-{item.id}.csv')
+    return FileResponse(path, media_type='text/csv', filename=f'{SPEC["short_name"]}-{item.id}.csv',
+                        headers={'X-Dataset-Revision': str(item.dataset_revision),
+                                 'X-Snapshot-Checksum': item.snapshot_checksum or '',
+                                 'X-Report-Day': item.report_day.isoformat() if item.report_day else ''})
 
 
 @router.post('/{run_id}/review')
@@ -75,6 +83,7 @@ def review(run_id: int, body: ReviewRequest, db: Session = Depends(connection),
     if modes and body.decision and body.decision not in modes:
         raise ValueError('请选择项目支持的处置决定')
     item.review, item.review_note, item.decision = body.review, body.note, body.decision or None
-    record(db, actor.username, f'review.{item.review}', item.id, note=body.note, decision=item.decision)
+    record(db, actor.username, f'review.{item.review}', item.id, note=body.note, decision=item.decision,
+           dataset_revision=item.dataset_revision, snapshot_checksum=item.snapshot_checksum)
     db.commit()
     return views.run(item, detail=True)

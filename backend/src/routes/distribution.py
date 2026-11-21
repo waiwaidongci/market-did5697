@@ -33,11 +33,15 @@ def add(body: ScheduleRequest, db: Session = Depends(connection), actor: User = 
     stamp = now()
     if first < stamp - timedelta(seconds=30) or first > stamp + timedelta(days=366):
         raise ValueError('请选择从现在起一年内的首次运行时间')
+    # Pin the report day so the first run (and any retry) always covers it.
+    report_day = (first + timedelta(hours=8)).date()
     item = Schedule(dataset_id=body.dataset_id, params=normalize_params(body.params), name=body.name,
-                    recipient=body.recipient, next_at=first, repeat_daily=body.repeat_daily, author=actor.username)
+                    recipient=body.recipient, next_at=first, slot_at=first, report_day=report_day, retries=0,
+                    repeat_daily=body.repeat_daily, author=actor.username)
     db.add(item)
     db.flush()
-    record(db, actor.username, 'schedule.created', item.id, recipient=item.recipient)
+    record(db, actor.username, 'schedule.created', item.id, recipient=item.recipient,
+           report_day=item.report_day.isoformat())
     db.commit()
     wake()
     return views.schedule(item)

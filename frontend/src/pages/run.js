@@ -22,7 +22,7 @@ export async function runPage(route, refresh) {
   const plan = button('保存定时计划',{type:'button',class:'primary','data-testid':'save-schedule'});
   const scheduleFields = scheduling && session.canReview && el('details',{class:'schedule-fields'},
     el('summary',{},'定时站内分发'),
-    p('单次执行锁定所选批次。每日计划读取最新导入的批次，报告日逐日推进。通过发布门槛后进入站内收件箱。','subtle'),
+    p('每次执行锁定提交时的数据版本（含指纹）。每日计划读取该系列最新版本，报告日逐日推进；缺报或异常时保留原报告日重试，不跳过、不改写已交付报告。','subtle'),
     field({key:'recipient',label:'收件团队',type:'string',required:false,max_length:100}),
     field({key:'first_at',label:'首次执行时间（北京时间）',type:'datetime-local',required:false}),
     el('label',{class:'check'},el('input',{name:'repeat_daily',type:'checkbox'}),'每日同一时间运行'), plan);
@@ -48,7 +48,7 @@ export async function runPage(route, refresh) {
   const scheduleList = scheduling && panel('定时计划',table([
     {key:'name',label:'计划'}, {key:'recipient',label:'收件团队'},
     {label:'下次执行（北京时间）',render:row=>row.enabled ? date(row.next_at) : '—'},
-    {key:'next_report_day',label:'下次报告日'},
+    {label:'待报报告日',render:row=>row.enabled ? (row.report_day||'—') : '—'},
     {label:'状态',render:row=>row.enabled ? '启用' : '已结束'},
     {label:'操作',render:row=>{
       if (!row.enabled || !session.canReview) return '—';

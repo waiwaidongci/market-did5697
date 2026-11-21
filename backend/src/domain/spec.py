@@ -40,6 +40,9 @@ SPEC = {
     "action": "提交试点复核",
     "modes": ["继续观察", "补报后重算", "提交扩围评估"],
     "pages": ["试点总览", "门岗明细", "差分测算", "试点结果", "复核决定", "报告交付"],
+    # 定时报告按报告日逐日推进：失败时保留原报告日重试，成功后才推进。
+    "scheduled": True,
+    "schedule_date_param": "report_day",
     "fields": [
         {"key": "market_id", "label": "市场", "type": "string", "required": True},
         {"key": "date", "label": "观测日期", "type": "date", "required": True},

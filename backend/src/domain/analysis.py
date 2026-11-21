@@ -78,9 +78,11 @@ def _parameters(normalized_params):
 
 def _balanced_panel(readings, start, end, days):
     by_market = {}
+    groups = {}
     outside = 0
     for row in readings:
         day = date.fromisoformat(row["date"]).toordinal()
+        groups[row["market_id"]] = row["group"]
         if start <= day < end:
             by_market.setdefault(row["market_id"], {})[day] = row
         else:
@@ -88,16 +90,20 @@ def _balanced_panel(readings, start, end, days):
 
     panel = {group: [[], [], []] for group in _GROUPS}
     sizes = dict.fromkeys(_GROUPS, 0)
-    coverage = []
-    for market, observed in sorted(by_market.items()):
-        group = next(iter(observed.values()))["group"]
+    coverage, exclusions = [], []
+    for market in sorted(groups):
+        observed = by_market.get(market, {})
+        group = groups[market]
         missing = [date.fromordinal(day).isoformat() for day in range(start, end) if day not in observed]
         coverage.append({
             "market": market, "group": group, "observed_days": len(observed),
             "expected_days": end - start, "status": "排除" if missing else "纳入",
             "missing": "、".join(missing) if missing else "无",
         })
-        if not missing:
+        if missing:
+            exclusions.append({"market": market, "group": group,
+                               "missing_days": len(missing), "missing": "、".join(missing)})
+        else:
             sizes[group] += 1
             for day, row in observed.items():
                 panel[group][(day - start) // days].append(row)
@@ -105,7 +111,7 @@ def _balanced_panel(readings, start, end, days):
     absent = [group for group, count in sizes.items() if count == 0]
     if absent:
         raise ValueError(f"{'、'.join(absent)}无完整观测市场。请补齐每日记录或调整窗口。")
-    return panel, sizes, coverage, outside
+    return panel, sizes, coverage, exclusions, outside
 
 
 def _display(value):
@@ -124,7 +130,7 @@ def _range_label(start, end):
 def analyze(rows, normalized_params):
     readings = validate_rows(rows)
     start, pilot, end, days, threshold = _parameters(normalized_params)
-    panel, sizes, coverage, outside = _balanced_panel(readings, start, end, days)
+    panel, sizes, coverage, exclusions, outside = _balanced_panel(readings, start, end, days)
     means = {
         group: [mean(Fraction(str(row["wait_minutes"])) for row in block) for block in panel[group]]
         for group in _GROUPS
@@ -166,6 +172,10 @@ def analyze(rows, normalized_params):
 
     return {
         "state": "warning" if warnings else "ok",
+        # A valid estimate is always distributable; exclusions and pretrend
+        # warnings are disclosed in the report and routed to review rather
+        # than silently blocking delivery.
+        "ready": True,
         "headline": f"双重差分为 {_display(effect):+g} 分钟。",
         "note": f"纳入 {sum(sizes.values())} 家市场。窗口外 {outside} 条。" + "".join(warnings),
         "metrics": [
@@ -176,6 +186,8 @@ def analyze(rows, normalized_params):
              "detail": f"{pretrend_status}（{float(threshold):g} 分钟），假启动日 {cutoff}。"},
             {"label": "平衡市场数", "value": sum(sizes.values()), "detail": f"窗口内 {len(coverage)} 家市场，排除 {excluded} 家。"},
         ],
+        "exclusions": exclusions,
+        "coverage": coverage,
         "tables": [
             _table("试点组与对照组前后均值", (
                 ("group", "分组"), ("period", "阶段"), ("dates", "观测日期（含首尾）"),

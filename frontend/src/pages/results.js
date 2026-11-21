@@ -40,9 +40,20 @@ export async function results(route, refresh) {
     result.tables.map(item=>panel(item.title,table(item.columns,item.rows,{caption:item.title}))))
     : panel(job.name,pill(STATUS[job.status],job.status),p(job.error,'feedback'),link('返回调整参数',`#run/${job.dataset_id}`,{class:'quiet'}));
   const inputs = spec.params.map(param=>el('div',{},el('dt',{},param.label),el('dd',{},value(job.params[param.key]))));
-  return el('div',{},el('div',{class:'two-col'},el('div',{class:'wide-panel'},analysis),
+  const locked = el('dl',{class:'dictionary'},
+    el('div',{},el('dt',{},'锁定数据版本'),el('dd',{},`第 ${job.dataset_revision} 版`)),
+    el('div',{},el('dt',{},'数据指纹'),el('dd',{class:'filename'},job.snapshot_checksum || '—')),
+    job.report_day && el('div',{},el('dt',{},'报告日'),el('dd',{},job.report_day)),
+    job.schedule_id && el('div',{},el('dt',{},'定时计划'),el('dd',{},`#${job.schedule_id}`)));
+  const exclusions = result?.exclusions?.length ? panel('被排除市场及缺报日', table([
+    {key:'market',label:'市场'}, {key:'group',label:'分组'},
+    {key:'missing_days',label:'缺报日数'}, {key:'missing',label:'缺报日期'},
+  ], result.exclusions, {caption:'被排除市场及缺报日'})) : null;
+  return el('div',{},el('div',{class:'two-col'},el('div',{class:'wide-panel'},analysis,
+      exclusions),
     el('aside',{class:'sidebar-panel'},panel('运行来源',history,
       source && link(source.name,`#inputs/${source.id}`),p(date(job.finished_at),'subtle'),
+      locked,
       el('dl',{class:'dictionary'},inputs)),
     result && panel(spec.decision, pill(REVIEW[job.review],job.review),
       link('打开复核记录',`#review/${job.id}`,{class:'quiet'})))));

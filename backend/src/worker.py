@@ -1,7 +1,7 @@
 import logging
 import time
 from pathlib import Path
-from src.services.execution import claim, execute, materialize_due
+from src.services.execution import claim, execute, materialize_due, recover
 from src.utils.wakeup import wait
 
 logging.basicConfig(level=logging.INFO)
@@ -10,6 +10,11 @@ heartbeat = Path('/tmp/analysis-heartbeat')
 
 
 def main():
+    # Recover anything a previous process left leased before taking new work.
+    try:
+        recover()
+    except Exception:
+        log.exception('Recovery at startup failed')
     while True:
         try:
             materialize_due()
@@ -19,6 +24,7 @@ def main():
                 execute(lease)
                 heartbeat.touch()
             else:
+                recover()
                 wait()
         except Exception:
             log.exception('Worker cycle failed')

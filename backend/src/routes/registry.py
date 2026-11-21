@@ -48,7 +48,10 @@ def upload(body: Upload, db: Session = Depends(connection),
            actor: User = Depends(allow(Role.ADMIN, Role.ANALYST))):
     rows = parse_rows(body.csv_text)
     item, created = save(db, body.name, body.filename, rows, actor.username)
-    if created:
-        record(db, actor.username, 'dataset.imported', item.id, rows=item.row_count)
+    # Record both the no-op re-upload and the new revision so the audit trail
+    # explains why a batch did or did not gain a version.
+    record(db, actor.username, 'dataset.imported' if created else 'dataset.duplicate', item.id,
+           revision=item.revision, added=item.added_rows, updated=item.updated_rows,
+           upload_checksum=item.upload_checksum)
     db.commit()
     return {**views.dataset(item), 'created': created}
